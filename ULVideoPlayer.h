@@ -19,14 +19,22 @@ typedef enum : NSUInteger {
 @interface ULVideoPlayer : UIView
 
 @property (nonatomic, assign) BOOL mute;
+@property (nonatomic, assign) AVLayerVideoGravity videoGravity;
 
 @property (nonatomic, strong) NSURL *videoUrl;
 
 @property (nonatomic, readonly) ULVideoPlayerStatus status;
+@property (nonatomic, readonly) BOOL paused;
 
 @property (nonatomic, copy) void (^AVPlayerStatusChangeBlock)(ULVideoPlayerStatus status);
 
+- (void)pause;
+- (void)play;
+
 - (void)ul_cancelLoadAndPause;
 - (void)ul_startLoadAndAutoPlay;
+
+- (void)reCongifPlayer;
+- (NSTimeInterval)ul_getCurrentTime;
 
 @end

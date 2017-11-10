@@ -9,6 +9,8 @@
 #import "ULVideoPlayer.h"
 #import "ULAVAssetResourceLoader.h"
 
+static int kMaxRetryCount = 3;
+
 @interface ULVideoPlayer()
 
 @property (nonatomic, strong) AVPlayer               *player;
@@ -19,6 +21,7 @@
 @property (nonatomic, strong) ULAVAssetResourceLoader *resourceLoader;
 
 @property (nonatomic, assign) BOOL paused;
+@property (nonatomic, assign) int retryCount;
 
 @end
 
@@ -26,13 +29,16 @@
 
 - (void)dealloc{
     _AVPlayerStatusChangeBlock = nil;
+    [_resourceLoader cancel];
+    [self removeCurrentPlayerItemObserver:_playerItem];
     [[NSNotificationCenter defaultCenter] removeObserver:self];
-    [self removeCurrentPlayerItemObserver:self.player.currentItem];
 }
 
 - (instancetype)initWithFrame:(CGRect)frame{
     self = [super initWithFrame:frame];
     if (self) {
+        self.retryCount = 0;
+        
         [self ul_configPlayer];
         [self ul_addNotification];
     }
@@ -44,6 +50,16 @@
     _player.muted = _mute;
 }
 
+- (void)setVideoGravity:(AVLayerVideoGravity)videoGravity{
+    _videoGravity = videoGravity;
+    _playerLayer.videoGravity = _videoGravity;
+}
+
+- (void)setFrame:(CGRect)frame{
+    [super setFrame:frame];
+    _playerLayer.frame = self.bounds;
+}
+
 - (void)setStatus:(ULVideoPlayerStatus)status{
     _status = status;
     if (_AVPlayerStatusChangeBlock) {
@@ -52,14 +68,18 @@
 }
 
 - (void)ul_startLoadAndAutoPlay{
-    _resourceLoader = [[ULAVAssetResourceLoader alloc]init];
+    _retryCount = 0;
+    
+    [self ul_startLoad];
+}
+
+- (void)ul_startLoad{
+    [self removeCurrentPlayerItemObserver:_playerItem];
     _playerItem = [_resourceLoader playerItemWithURL:self.videoUrl];
-    
-    [self removeCurrentPlayerItemObserver:_player.currentItem];
     [_player replaceCurrentItemWithPlayerItem:_playerItem];
-    [self addCurrentPlayerItemObserver:_player.currentItem];
-    
     [_player play];
+    [self addCurrentPlayerItemObserver:_playerItem];
+    
     _paused = NO;
     self.status = ULVideoPlayerStatusLoading;
 }
@@ -78,6 +98,20 @@
     [playerItem removeObserver:self forKeyPath:@"loadedTimeRanges"];
 }
 
+- (NSTimeInterval)ul_getCurrentTime{
+    
+    return CMTimeGetSeconds(self.player.currentTime);
+}
+
+- (void)play{
+    _paused = NO;
+    [_player play];
+}
+
+- (void)pause{
+    _paused = YES;
+    [_player pause];
+}
 
 - (void)ul_cancelLoadAndPause{
     [_player pause];
@@ -90,10 +124,37 @@
     _player = [[AVPlayer alloc] init];
     _player.muted = self.mute;
     
+    if ([_player respondsToSelector:@selector(setAutomaticallyWaitsToMinimizeStalling:)]) {
+        _player.automaticallyWaitsToMinimizeStalling = NO;
+    }
+    
     _playerLayer = [AVPlayerLayer playerLayerWithPlayer:self.player];
     _playerLayer.frame = self.bounds;
     _playerLayer.videoGravity = AVLayerVideoGravityResizeAspectFill;
     [self.layer insertSublayer:_playerLayer atIndex:0];
+    
+    _resourceLoader = [[ULAVAssetResourceLoader alloc]init];
+}
+
+- (void)reCongifPlayer{
+    if (_retryCount >= kMaxRetryCount) {
+        return;
+    }
+    _retryCount ++;
+    
+    [_resourceLoader cancel];
+    [self removeCurrentPlayerItemObserver:_playerItem];
+    _playerItem = nil;
+    _player = nil;
+    
+    if (_playerLayer.superlayer) {
+        [_playerLayer removeFromSuperlayer];
+        _playerLayer = nil;
+    }
+    
+    [self ul_configPlayer];
+    
+    [self ul_startLoad];
 }
 
 - (void)ul_addNotification{
@@ -123,11 +184,12 @@
 #pragma mark KVO - status
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary<NSString *,id> *)change context:(void *)context {
     AVPlayerItem *item = (AVPlayerItem *)object;
-    
     if ([keyPath isEqualToString:@"status"]) {
-        AVPlayerStatus status = [[change objectForKey:@"new"] intValue]; // 获取更改后的状态
-        if (status == AVPlayerStatusFailed) {
+        AVPlayerItemStatus status = [[change objectForKey:@"new"] intValue]; // 获取更改后的状态
+        if (status == AVPlayerItemStatusFailed) {
             self.status = ULVideoPlayerStatusFail;
+            [self.resourceLoader removeCache];
+            [self reCongifPlayer];
         }
     } else if ([keyPath isEqualToString:@"loadedTimeRanges"]) {
         //视频当前的播放进度
@@ -138,9 +200,10 @@
         NSTimeInterval loadedTime = [self availableDurationWithplayerItem:_playerItem];
         
         if (loadedTime - current > 2 || loadedTime == total) {
-            
-        }else{
-
+            if (!_paused) {
+                [_player play];
+                self.status = ULVideoPlayerStatusPlaying;
+            }
         }
     }else if ([keyPath isEqualToString:@"playbackBufferEmpty"]) { //监听播放器在缓冲数据的状态
         self.status = ULVideoPlayerStatusLoading;
