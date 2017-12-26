@@ -124,9 +124,9 @@ static int kMaxRetryCount = 3;
     _player = [[AVPlayer alloc] init];
     _player.muted = self.mute;
     
-    if ([_player respondsToSelector:@selector(setAutomaticallyWaitsToMinimizeStalling:)]) {
-        _player.automaticallyWaitsToMinimizeStalling = NO;
-    }
+//    if ([_player respondsToSelector:@selector(setAutomaticallyWaitsToMinimizeStalling:)]) {
+//        _player.automaticallyWaitsToMinimizeStalling = NO;
+//    }
     
     _playerLayer = [AVPlayerLayer playerLayerWithPlayer:self.player];
     _playerLayer.frame = self.bounds;
